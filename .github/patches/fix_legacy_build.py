@@ -57,4 +57,25 @@ text = text.replace("UIKit QuartzCore CoreGraphics AVFoundation", "UIKit QuartzC
 if "-Wno-error=arc-performSelector-leaks" not in text:
     text = text.replace("Style15_CFLAGS = ", "Style15_CFLAGS = -Wno-error=arc-performSelector-leaks ")
 makefile.write_text(text)
+
+# Modern UIKit SDK renamed these legacy enum constants.
+for source in (root / "Source").glob("*.xm"):
+    source_text = source.read_text()
+    replacements = {
+        "UITextAlignmentLeft": "NSTextAlignmentLeft",
+        "UITextAlignmentCenter": "NSTextAlignmentCenter",
+        "UITextAlignmentRight": "NSTextAlignmentRight",
+        "UITextAlignmentJustified": "NSTextAlignmentJustified",
+        "UITextAlignmentNatural": "NSTextAlignmentNatural",
+        "UILineBreakModeWordWrap": "NSLineBreakByWordWrapping",
+        "UILineBreakModeCharacterWrap": "NSLineBreakByCharWrapping",
+        "UILineBreakModeClip": "NSLineBreakByClipping",
+        "UILineBreakModeHeadTruncation": "NSLineBreakByTruncatingHead",
+        "UILineBreakModeTailTruncation": "NSLineBreakByTruncatingTail",
+        "UILineBreakModeMiddleTruncation": "NSLineBreakByTruncatingMiddle",
+    }
+    for old, new in replacements.items():
+        source_text = source_text.replace(old, new)
+    source.write_text(source_text)
+
 print("Applied legacy SDK/source compatibility fixes.")
