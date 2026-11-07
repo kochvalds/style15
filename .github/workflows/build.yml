@@ -10,7 +10,7 @@ jobs:
       - name: Install deps
         run: |
           sudo apt update
-          sudo apt install -y build-essential git curl fakeroot clang dpkg
+          sudo apt install -y build-essential git curl fakeroot clang dpkg unzip
 
       - name: Install ldid
         run: |
@@ -24,24 +24,26 @@ jobs:
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
           echo "$HOME/theos/bin" >> $GITHUB_PATH
 
-      - name: Debug
+      - name: Unzip project
         run: |
-          echo "== pwd =="; pwd
-          echo "== THEOS =="; echo "$THEOS"
-          echo "== ls -la =="; ls -la
-          echo "== Makefiles =="; find . -maxdepth 4 -name Makefile -not -path './.git/*'
-          echo "== Root Makefile (if any) =="; [ -f Makefile ] && cat Makefile || echo "(no Makefile in root)"
+          unzip -o style15.zip
+          echo "== after unzip =="
+          ls -la
 
       - name: Build
         run: |
           if [ -f Makefile ]; then
-            echo "Building at repo root"
+            echo "Building in repo root"
             make package
-          elif [ -f style15/Makefile ]; then
+          elif [ -d style15 ] && [ -f style15/Makefile ]; then
             echo "Building in style15/"
             cd style15 && make package
+          elif [ -d style15 ] && [ -f style15/style15/Makefile ]; then
+            echo "Building in style15/style15/"
+            cd style15/style15 && make package
           else
-            echo "No Makefile found — see Debug output above"
+            echo "Makefile not found after unzip. Check archive structure."
+            find . -maxdepth 4 -name Makefile -not -path './.git/*'
             exit 1
           fi
 
@@ -51,3 +53,4 @@ jobs:
           path: |
             packages/*.deb
             style15/packages/*.deb
+            style15/style15/packages/*.deb
