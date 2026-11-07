@@ -1,0 +1,27 @@
+name: build
+on: [push, workflow_dispatch]
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install deps
+        run: |
+          sudo apt update
+          sudo apt install -y build-essential git curl fakeroot clang ldid dpkg
+      - name: Install Theos
+        run: |
+          bash -c "$(curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos)"
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+      - name: SDK
+        run: |
+          mkdir -p $HOME/theos/sdks
+          # скачать iPhoneOS6.1.sdk и распаковать в $HOME/theos/sdks/
+      - name: Build
+        run: |
+          cd style15
+          make package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb
+          path: style15/packages/*.deb
