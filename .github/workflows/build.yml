@@ -32,25 +32,19 @@ jobs:
 
       - name: Build
         run: |
-          if [ -f Makefile ]; then
-            echo "Building in repo root"
-            make package
-          elif [ -d style15 ] && [ -f style15/Makefile ]; then
-            echo "Building in style15/"
-            cd style15 && make package
-          elif [ -d style15 ] && [ -f style15/style15/Makefile ]; then
-            echo "Building in style15/style15/"
-            cd style15/style15 && make package
-          else
-            echo "Makefile not found after unzip. Check archive structure."
-            find . -maxdepth 4 -name Makefile -not -path './.git/*'
-            exit 1
-          fi
+          cd style15
+          echo "== Makefile =="
+          cat Makefile
+          echo "== Building =="
+          make package \
+            TARGET=iphone:clang:latest:6.0 \
+            ARCHS="armv7 armv7s" \
+            DEBUG=0 \
+            FINALPACKAGE=1
 
       - uses: actions/upload-artifact@v4
         with:
           name: deb
           path: |
-            packages/*.deb
             style15/packages/*.deb
-            style15/style15/packages/*.deb
+            packages/*.deb
