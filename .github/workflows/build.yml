@@ -18,17 +18,17 @@ jobs:
           chmod +x /usr/local/bin/ldid
           ldid -v || true
 
-      - name: Install Theos & SDK 6.1
+      - name: Install Theos & SDK (10.3)
         run: |
           bash -c "$(curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos)"
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
           echo "$HOME/theos/bin" >> $GITHUB_PATH
 
-          # Скачиваем SDK iOS 6.1
+          # Скачиваем репозиторий SDK и копируем iPhoneOS10.3.sdk
           curl -L https://github.com/theos/sdks/archive/refs/heads/master.zip -o /tmp/sdks.zip
           unzip -o /tmp/sdks.zip -d /tmp/sdks
           mkdir -p $HOME/theos/sdks
-          cp -r /tmp/sdks/sdks-master/iPhoneOS6.1.sdk $HOME/theos/sdks/
+          cp -r /tmp/sdks/sdks-master/iPhoneOS10.3.sdk $HOME/theos/sdks/
           echo "== SDKs available =="
           ls $HOME/theos/sdks
 
@@ -37,15 +37,13 @@ jobs:
           unzip -o style15.zip
           ls -la style15
 
-      - name: Patch sources (imports + categories + S15Release)
+      - name: Patch sources
         run: |
           cd style15
           python3 - <<'PY'
           import os, re
 
-          # Категории, которые добавляем ПОСЛЕ импортов
           categories = """
-          // --- Auto-generated S15Fix categories ---
           @interface SBIconImageView (S15Fix)
           @property (nonatomic) CGRect bounds;
           @property (nonatomic, readonly) CALayer *layer;
@@ -74,7 +72,6 @@ jobs:
           @property (nonatomic, readonly) NSArray *subviews;
           @property (nonatomic) CGRect bounds;
           @end
-          // -----------------------------------------
           """
 
           for root, _, files in os.walk('Source'):
@@ -84,33 +81,27 @@ jobs:
                   p = os.path.join(root, f)
                   text = open(p).read()
 
-                  # 1. Гарантируем наличие базовых импортов
+                  # Гарантируем базовые импорты
                   if '#import <UIKit/UIKit.h>' not in text:
                       text = '#import <UIKit/UIKit.h>\n' + text
                   if '#import <QuartzCore/QuartzCore.h>' not in text:
                       text = '#import <QuartzCore/QuartzCore.h>\n' + text
 
-                  # 2. Вставляем категории после последнего #import
+                  # Вставляем категории после последнего #import
                   lines = text.splitlines()
                   last_import = -1
                   for i, line in enumerate(lines):
                       if line.strip().startswith('#import'):
                           last_import = i
-                  if last_import == -1:
-                      # если импортов не было (маловероятно), вставляем после первых строк
-                      insert_at = 0
-                  else:
-                      insert_at = last_import + 1
+                  insert_at = last_import + 1 if last_import != -1 else 0
                   lines.insert(insert_at, categories)
                   text = '\n'.join(lines)
 
-                  # 3. Фикс S15Release: принимаем id и приводим к UIView*
+                  # Фикс S15Release
                   text = re.sub(r'static\s+void\s+S15Release\s*\(\s*UIView\s*\*\s*v\s*\)',
                                 'static void S15Release(id v)', text)
-                  # Внутри функции создаём локальную переменную view
                   text = re.sub(r'(static\s+void\s+S15Release\s*\(\s*id\s+v\s*\)\s*\{)',
                                 r'\1\n    UIView *view = (UIView *)v;', text)
-                  # Заменяем обращения к v на view внутри функции (эвристика)
                   text = re.sub(r'(static\s+void\s+S15Release\s*\(\s*id\s+v\s*\)\s*\{.*?\})',
                                 lambda m: m.group(0).replace(' v)', ' view)').replace('(v)', '(view)').replace(' v.', ' view.'),
                                 text, flags=re.S)
@@ -121,11 +112,10 @@ jobs:
       - name: Build
         run: |
           cd style15
-          # Используем скачанный SDK 6.1, target iOS 6.0
           make package \
             TARGET=iphone:clang:latest:6.0 \
             ARCHS="armv7 armv7s" \
-            ADDITIONAL_CFLAGS="-fno-modules -Wno-module-import-in-extern-c" \
+            ADDITIONAL_CFLAGS="-fno-modules" \
             DEBUG=0 \
             FINALPACKAGE=1
 
