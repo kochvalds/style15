@@ -18,13 +18,13 @@ jobs:
           chmod +x /usr/local/bin/ldid
           ldid -v || true
 
-      - name: Install Theos & SDK (10.3)
+      - name: Install Theos & SDK 10.3
         run: |
           bash -c "$(curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos)"
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
           echo "$HOME/theos/bin" >> $GITHUB_PATH
 
-          # Скачиваем репозиторий SDK и копируем iPhoneOS10.3.sdk
+          # Скачиваем репозиторий SDK и копируем именно iPhoneOS10.3.sdk
           curl -L https://github.com/theos/sdks/archive/refs/heads/master.zip -o /tmp/sdks.zip
           unzip -o /tmp/sdks.zip -d /tmp/sdks
           mkdir -p $HOME/theos/sdks
@@ -43,6 +43,7 @@ jobs:
           python3 - <<'PY'
           import os, re
 
+          # Категории, которые добавляем ПОСЛЕ всех #import
           categories = """
           @interface SBIconImageView (S15Fix)
           @property (nonatomic) CGRect bounds;
@@ -68,6 +69,10 @@ jobs:
           @property (nonatomic) CGRect bounds;
           @end
 
+          @interface SBFolderIconImageView (S15Fix)
+          @property (nonatomic, strong) UIColor *backgroundColor;
+          @end
+
           @interface UIStatusBar (S15Fix)
           @property (nonatomic, readonly) NSArray *subviews;
           @property (nonatomic) CGRect bounds;
@@ -81,13 +86,13 @@ jobs:
                   p = os.path.join(root, f)
                   text = open(p).read()
 
-                  # Гарантируем базовые импорты
+                  # 1. Гарантируем базовые импорты
                   if '#import <UIKit/UIKit.h>' not in text:
                       text = '#import <UIKit/UIKit.h>\n' + text
                   if '#import <QuartzCore/QuartzCore.h>' not in text:
                       text = '#import <QuartzCore/QuartzCore.h>\n' + text
 
-                  # Вставляем категории после последнего #import
+                  # 2. Вставляем категории после ПОСЛЕДНЕГО #import
                   lines = text.splitlines()
                   last_import = -1
                   for i, line in enumerate(lines):
@@ -97,14 +102,17 @@ jobs:
                   lines.insert(insert_at, categories)
                   text = '\n'.join(lines)
 
-                  # Фикс S15Release
+                  # 3. Фикс S15Release: id v -> внутри создаём UIView *view и заменяем v на view в теле
                   text = re.sub(r'static\s+void\s+S15Release\s*\(\s*UIView\s*\*\s*v\s*\)',
                                 'static void S15Release(id v)', text)
-                  text = re.sub(r'(static\s+void\s+S15Release\s*\(\s*id\s+v\s*\)\s*\{)',
-                                r'\1\n    UIView *view = (UIView *)v;', text)
-                  text = re.sub(r'(static\s+void\s+S15Release\s*\(\s*id\s+v\s*\)\s*\{.*?\})',
-                                lambda m: m.group(0).replace(' v)', ' view)').replace('(v)', '(view)').replace(' v.', ' view.'),
-                                text, flags=re.S)
+
+                  def fix_body(m):
+                      body = m.group(1)
+                      # Заменяем \bv\b на view, но не трогаем "id v" в сигнатуре
+                      body = re.sub(r'\bv\b', 'view', body)
+                      return 'static void S15Release(id v) {\n    UIView *view = (UIView *)v;\n' + body + '}'
+
+                  text = re.sub(r'static\s+void\s+S15Release\s*\(\s*id\s+v\s*\)\s*\{(.*?)\}', fix_body, text, flags=re.S)
                   open(p, 'w').write(text)
                   print('patched', p)
           PY
@@ -113,7 +121,7 @@ jobs:
         run: |
           cd style15
           make package \
-            TARGET=iphone:clang:latest:6.0 \
+            TARGET=iphone:clang:10.3:6.0 \
             ARCHS="armv7 armv7s" \
             ADDITIONAL_CFLAGS="-fno-modules" \
             DEBUG=0 \
