@@ -29,10 +29,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -s style15.zip || {
-            echo "::error::style15.zip is missing or empty"
-            exit 1
-          }
+          test -s style15.zip
           unzip -t style15.zip
 
       - name: Extract project and locate Makefile
@@ -42,16 +39,11 @@ jobs:
           set -euo pipefail
           mkdir -p extracted
           unzip -q style15.zip -d extracted
-
           mapfile -t makefiles < <(find extracted -type f -name Makefile -not -path '*/.theos/*' | sort)
           if [ "${#makefiles[@]}" -eq 0 ]; then
             echo "::error::No Theos Makefile found inside style15.zip"
-            find extracted -maxdepth 4 -type f -print
             exit 1
           fi
-
-          # The archive also contains an example tweak with its own Makefile.
-          # Select the shallowest Makefile: this is the actual project root.
           min_depth=999
           project_makefile=""
           for makefile in "${makefiles[@]}"; do
@@ -61,16 +53,24 @@ jobs:
               min_depth="$depth"
               project_makefile="$makefile"
             elif [ "$depth" -eq "$min_depth" ]; then
-              echo "::error::Multiple project-level Makefiles found at the same depth"
-              printf '%s\\n' "$project_makefile" "$makefile"
+              echo "::error::Multiple project-level Makefiles found"
               exit 1
             fi
           done
-
           project_dir="$(dirname "$project_makefile")"
           echo "project_dir=$project_dir" >> "$GITHUB_OUTPUT"
           echo "Using project directory: $project_dir"
-          ls -la "$project_dir"
+
+      - name: Apply legacy source compatibility fixes
+        shell: bash
+        env:
+          PROJECT_DIR: ${{ steps.project.outputs.project_dir }}
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          python3 "$GITHUB_WORKSPACE/.github/patches/fix_legacy_build.py"
+          grep -q 'TARGET = iphone:clang:latest:6.0' Makefile
+          ! grep -q 'AVFoundation/AVFoundation.h' Source/Core.xm
 
       - name: Build Debian package
         shell: bash
@@ -80,7 +80,6 @@ jobs:
           set -euo pipefail
           cd "$PROJECT_DIR"
           make package FINALPACKAGE=1 TARGET=iphone:clang:latest:6.0
-
           shopt -s nullglob
           packages=(packages/*.deb)
           if [ "${#packages[@]}" -eq 0 ]; then
