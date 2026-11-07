@@ -79,7 +79,7 @@ jobs:
         run: |
           set -euo pipefail
           cd "$PROJECT_DIR"
-          make package FINALPACKAGE=1
+          make package FINALPACKAGE=1 TARGET=iphone:clang:latest:6.0
 
           shopt -s nullglob
           packages=(packages/*.deb)
