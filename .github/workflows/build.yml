@@ -50,13 +50,24 @@ jobs:
             exit 1
           fi
 
-          if [ "${#makefiles[@]}" -gt 1 ]; then
-            echo "::error::More than one Makefile found; refusing to build an ambiguous project"
-            printf '%s\n' "${makefiles[@]}"
-            exit 1
-          fi
+          # The archive also contains an example tweak with its own Makefile.
+          # Select the shallowest Makefile: this is the actual project root.
+          min_depth=999
+          project_makefile=""
+          for makefile in "${makefiles[@]}"; do
+            relative="${makefile#extracted/}"
+            depth="$(awk -F/ '{print NF}' <<< "$relative")"
+            if [ "$depth" -lt "$min_depth" ]; then
+              min_depth="$depth"
+              project_makefile="$makefile"
+            elif [ "$depth" -eq "$min_depth" ]; then
+              echo "::error::Multiple project-level Makefiles found at the same depth"
+              printf '%s\\n' "$project_makefile" "$makefile"
+              exit 1
+            fi
+          done
 
-          project_dir="$(dirname "${makefiles[0]}")"
+          project_dir="$(dirname "$project_makefile")"
           echo "project_dir=$project_dir" >> "$GITHUB_OUTPUT"
           echo "Using project directory: $project_dir"
           ls -la "$project_dir"
