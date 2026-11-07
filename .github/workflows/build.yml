@@ -1,132 +1,36 @@
-name: build
+name: Build Tweak
 on: [push, workflow_dispatch]
 
 jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Install deps
-        run: |
-          sudo apt update
-          sudo apt install -y build-essential git curl fakeroot clang dpkg unzip python3
-
-      - name: Install ldid
-        run: |
-          curl -L https://github.com/ProcursusTeam/ldid/releases/download/v2.1.5-procursus7/ldid_linux_x86_64 -o /usr/local/bin/ldid
-          chmod +x /usr/local/bin/ldid
-          ldid -v || true
-
-      - name: Install Theos & SDK 6.1
-        run: |
-          bash -c "$(curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos)"
-          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
-          echo "$HOME/theos/bin" >> $GITHUB_PATH
-          
-          # Скачиваем и подготавливаем SDK 6.1
-          mkdir -p $HOME/theos/sdks
-          curl -L https://github.com/theos/sdks/archive/refs/heads/master.zip -o /tmp/sdks.zip
-          unzip -o /tmp/sdks.zip -d /tmp/sdks
-          cp -r /tmp/sdks/sdks-master/iPhoneOS6.1.sdk $HOME/theos/sdks/
-          echo "== SDKs available =="
-          ls $HOME/theos/sdks
+      - name: Setup Theos
+        uses: Randomblock1/theos-action@v1
+        # Это действие само скачает Theos и популярные SDK,
+        # включая старые версии.
 
       - name: Unzip project
         run: |
           unzip -o style15.zip
-          ls -la style15
+          cd style15
+          
+          # ВАЖНО: Нам всё ещё нужен наш патч для исходников
+          # Вставьте сюда шаг "Patch sources" из Варианта 1
+          # ...
+          ls -la
 
-      - name: Patch sources
+      - name: Build Package
         run: |
           cd style15
-          python3 - <<'PY'
-          import os, re
+          # Указываем Theos использовать SDK 6.1
+          make package TARGET=iphone:clang:6.1:6.0 ARCHS="armv7 armv7s" ADDITIONAL_CFLAGS="-fno-modules"
 
-          categories = """
-          @interface SBIconImageView (S15Fix)
-          @property (nonatomic) CGRect bounds;
-          @property (nonatomic, readonly) CALayer *layer;
-          @property (nonatomic, readonly) NSArray *subviews;
-          @end
-
-          @interface SBIconView (S15Fix)
-          @property (nonatomic) CGAffineTransform transform;
-          @end
-
-          @interface SBDockView (S15Fix)
-          @property (nonatomic, readonly) UIView *superview;
-          @property (nonatomic, readonly) NSArray *subviews;
-          @property (nonatomic) CGRect bounds;
-          - (UIView *)viewWithTag:(NSInteger)tag;
-          @end
-
-          @interface SBIconBadgeView (S15Fix)
-          @property (nonatomic, readonly) NSArray *subviews;
-          @property (nonatomic, strong) UIColor *backgroundColor;
-          @property (nonatomic, readonly) CALayer *layer;
-          @property (nonatomic) CGRect bounds;
-          @end
-
-          @interface SBFolderIconImageView (S15Fix)
-          @property (nonatomic, strong) UIColor *backgroundColor;
-          @end
-
-          @interface UIStatusBar (S15Fix)
-          @property (nonatomic, readonly) NSArray *subviews;
-          @property (nonatomic) CGRect bounds;
-          @end
-          """
-
-          for root, _, files in os.walk('Source'):
-              for f in files:
-                  if not f.endswith('.xm'):
-                      continue
-                  p = os.path.join(root, f)
-                  text = open(p).read()
-
-                  # 1. Гарантируем базовые импорты
-                  if '#import <UIKit/UIKit.h>' not in text:
-                      text = '#import <UIKit/UIKit.h>\n' + text
-                  if '#import <QuartzCore/QuartzCore.h>' not in text:
-                      text = '#import <QuartzCore/QuartzCore.h>\n' + text
-
-                  # 2. Вставляем категории после ПОСЛЕДНЕГО #import
-                  lines = text.splitlines()
-                  last_import = -1
-                  for i, line in enumerate(lines):
-                      if line.strip().startswith('#import'):
-                          last_import = i
-                  insert_at = last_import + 1 if last_import != -1 else 0
-                  lines.insert(insert_at, categories)
-                  text = '\n'.join(lines)
-
-                  # 3. Исправляем S15Release
-                  text = re.sub(r'static\s+void\s+S15Release\s*\(\s*UIView\s*\*\s*v\s*\)',
-                                'static void S15Release(id v)', text)
-                  
-                  def fix_body(m):
-                      body = m.group(1)
-                      body = re.sub(r'\bv\b', 'view', body) # Заменяем v на view в теле
-                      return 'static void S15Release(id v) {\n    UIView *view = (UIView *)v;\n' + body + '}'
-
-                  text = re.sub(r'static\s+void\s+S15Release\s*\(\s*id\s+v\s*\)\s*\{(.*?)\}', fix_body, text, flags=re.S)
-                  open(p, 'w').write(text)
-                  print('patched', p)
-          PY
-
-      - name: Build
-        run: |
-          cd style15
-          # Явно указываем SDK 6.1 и архитектуры
-          make package \
-            TARGET=iphone:clang:6.1:6.0 \
-            ARCHS="armv7 armv7s" \
-            ADDITIONAL_CFLAGS="-fno-modules" \
-            DEBUG=0 \
-            FINALPACKAGE=1
-
-      - uses: actions/upload-artifact@v4
+      - name: Upload Deb
+        uses: actions/upload-artifact@v4
         with:
-          name: deb
+          name: style15-deb
           path: style15/packages/*.deb
