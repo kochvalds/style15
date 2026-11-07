@@ -1,36 +1,87 @@
-name: Build Tweak
-on: [push, workflow_dispatch]
+name: Build Style15
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: style15-build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
+    name: Build iOS tweak package
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Theos
+      - name: Set up Theos
         uses: Randomblock1/theos-action@v1
-        # Это действие само скачает Theos и популярные SDK,
-        # включая старые версии.
 
-      - name: Unzip project
+      - name: Check archive
+        shell: bash
         run: |
-          unzip -o style15.zip
-          cd style15
-          
-          # ВАЖНО: Нам всё ещё нужен наш патч для исходников
-          # Вставьте сюда шаг "Patch sources" из Варианта 1
-          # ...
-          ls -la
+          set -euo pipefail
+          test -s style15.zip || {
+            echo "::error::style15.zip is missing or empty"
+            exit 1
+          }
+          unzip -t style15.zip
 
-      - name: Build Package
+      - name: Extract project and locate Makefile
+        id: project
+        shell: bash
         run: |
-          cd style15
-          # Указываем Theos использовать SDK 6.1
-          make package TARGET=iphone:clang:6.1:6.0 ARCHS="armv7 armv7s" ADDITIONAL_CFLAGS="-fno-modules"
+          set -euo pipefail
+          mkdir -p extracted
+          unzip -q style15.zip -d extracted
 
-      - name: Upload Deb
+          mapfile -t makefiles < <(find extracted -type f -name Makefile -not -path '*/.theos/*' | sort)
+          if [ "${#makefiles[@]}" -eq 0 ]; then
+            echo "::error::No Theos Makefile found inside style15.zip"
+            find extracted -maxdepth 4 -type f -print
+            exit 1
+          fi
+
+          if [ "${#makefiles[@]}" -gt 1 ]; then
+            echo "::error::More than one Makefile found; refusing to build an ambiguous project"
+            printf '%s\n' "${makefiles[@]}"
+            exit 1
+          fi
+
+          project_dir="$(dirname "${makefiles[0]}")"
+          echo "project_dir=$project_dir" >> "$GITHUB_OUTPUT"
+          echo "Using project directory: $project_dir"
+          ls -la "$project_dir"
+
+      - name: Build Debian package
+        shell: bash
+        env:
+          PROJECT_DIR: ${{ steps.project.outputs.project_dir }}
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          make package FINALPACKAGE=1
+
+          shopt -s nullglob
+          packages=(packages/*.deb)
+          if [ "${#packages[@]}" -eq 0 ]; then
+            echo "::error::Theos build completed without producing a .deb package"
+            exit 1
+          fi
+          printf 'Built package: %s\n' "${packages[@]}"
+
+      - name: Upload Debian package
         uses: actions/upload-artifact@v4
         with:
           name: style15-deb
-          path: style15/packages/*.deb
+          path: ${{ steps.project.outputs.project_dir }}/packages/*.deb
+          if-no-files-found: error
+          retention-days: 14
