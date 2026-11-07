@@ -18,17 +18,17 @@ jobs:
           chmod +x /usr/local/bin/ldid
           ldid -v || true
 
-      - name: Install Theos & SDK 10.3
+      - name: Install Theos & SDK 6.1
         run: |
           bash -c "$(curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos)"
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
           echo "$HOME/theos/bin" >> $GITHUB_PATH
-
-          # Скачиваем репозиторий SDK и копируем именно iPhoneOS10.3.sdk
+          
+          # Скачиваем и подготавливаем SDK 6.1
+          mkdir -p $HOME/theos/sdks
           curl -L https://github.com/theos/sdks/archive/refs/heads/master.zip -o /tmp/sdks.zip
           unzip -o /tmp/sdks.zip -d /tmp/sdks
-          mkdir -p $HOME/theos/sdks
-          cp -r /tmp/sdks/sdks-master/iPhoneOS10.3.sdk $HOME/theos/sdks/
+          cp -r /tmp/sdks/sdks-master/iPhoneOS6.1.sdk $HOME/theos/sdks/
           echo "== SDKs available =="
           ls $HOME/theos/sdks
 
@@ -43,7 +43,6 @@ jobs:
           python3 - <<'PY'
           import os, re
 
-          # Категории, которые добавляем ПОСЛЕ всех #import
           categories = """
           @interface SBIconImageView (S15Fix)
           @property (nonatomic) CGRect bounds;
@@ -102,14 +101,13 @@ jobs:
                   lines.insert(insert_at, categories)
                   text = '\n'.join(lines)
 
-                  # 3. Фикс S15Release: id v -> внутри создаём UIView *view и заменяем v на view в теле
+                  # 3. Исправляем S15Release
                   text = re.sub(r'static\s+void\s+S15Release\s*\(\s*UIView\s*\*\s*v\s*\)',
                                 'static void S15Release(id v)', text)
-
+                  
                   def fix_body(m):
                       body = m.group(1)
-                      # Заменяем \bv\b на view, но не трогаем "id v" в сигнатуре
-                      body = re.sub(r'\bv\b', 'view', body)
+                      body = re.sub(r'\bv\b', 'view', body) # Заменяем v на view в теле
                       return 'static void S15Release(id v) {\n    UIView *view = (UIView *)v;\n' + body + '}'
 
                   text = re.sub(r'static\s+void\s+S15Release\s*\(\s*id\s+v\s*\)\s*\{(.*?)\}', fix_body, text, flags=re.S)
@@ -120,8 +118,9 @@ jobs:
       - name: Build
         run: |
           cd style15
+          # Явно указываем SDK 6.1 и архитектуры
           make package \
-            TARGET=iphone:clang:10.3:6.0 \
+            TARGET=iphone:clang:6.1:6.0 \
             ARCHS="armv7 armv7s" \
             ADDITIONAL_CFLAGS="-fno-modules" \
             DEBUG=0 \
