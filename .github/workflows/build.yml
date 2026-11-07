@@ -10,7 +10,7 @@ jobs:
       - name: Install deps
         run: |
           sudo apt update
-          sudo apt install -y build-essential git curl fakeroot clang dpkg unzip
+          sudo apt install -y build-essential git curl fakeroot clang dpkg unzip python3
 
       - name: Install ldid
         run: |
@@ -27,24 +27,80 @@ jobs:
       - name: Unzip project
         run: |
           unzip -o style15.zip
-          echo "== after unzip =="
-          ls -la
+          ls -la style15
+
+      - name: Patch sources (forward-class properties + S15Release)
+        run: |
+          cd style15
+          python3 - <<'PY'
+          import os, re
+
+          # Объявления свойств, которых не хватает компилятору
+          categories = """
+          @interface SBIconImageView (S15Fix)
+          @property (nonatomic) CGRect bounds;
+          @property (nonatomic, readonly) CALayer *layer;
+          @property (nonatomic, readonly) NSArray *subviews;
+          @end
+
+          @interface SBIconView (S15Fix)
+          @property (nonatomic) CGAffineTransform transform;
+          @end
+
+          @interface SBDockView (S15Fix)
+          @property (nonatomic, readonly) UIView *superview;
+          @property (nonatomic, readonly) NSArray *subviews;
+          @property (nonatomic) CGRect bounds;
+          - (UIView *)viewWithTag:(NSInteger)tag;
+          @end
+
+          @interface SBIconBadgeView (S15Fix)
+          @property (nonatomic, readonly) NSArray *subviews;
+          @property (nonatomic, strong) UIColor *backgroundColor;
+          @property (nonatomic, readonly) CALayer *layer;
+          @property (nonatomic) CGRect bounds;
+          @end
+
+          @interface UIStatusBar (S15Fix)
+          @property (nonatomic, readonly) NSArray *subviews;
+          @property (nonatomic) CGRect bounds;
+          @end
+          """
+
+          for root, _, files in os.walk('Source'):
+              for f in files:
+                  if not f.endswith('.xm'):
+                      continue
+                  p = os.path.join(root, f)
+                  text = open(p).read()
+                  # 1. Вставляем категории после последнего @class (или в начало)
+                  if categories.strip() not in text:
+                      text = categories + "\n" + text
+                  # 2. Меняем S15Release на id, чтобы принимала SBIconView*
+                  text = re.sub(r'static\s+void\s+S15Release\s*\(\s*UIView\s*\*\s*v\s*\)',
+                                'static void S15Release(id v)', text)
+                  # внутри функции добавляем приведение
+                  text = re.sub(r'(static\s+void\s+S15Release\s*\(\s*id\s+v\s*\)\s*\{)',
+                                r'\1\n    UIView *view = (UIView *)v;', text)
+                  # заменяем обращения к v на view внутри функции (простая эвристика)
+                  text = re.sub(r'(static\s+void\s+S15Release\s*\(\s*id\s+v\s*\)\s*\{.*?\})',
+                                lambda m: m.group(0).replace(' v)', ' view)').replace('(v)', '(view)').replace(' v.', ' view.'),
+                                text, flags=re.S)
+                  open(p, 'w').write(text)
+                  print('patched', p)
+          PY
 
       - name: Build
         run: |
           cd style15
-          echo "== Makefile =="
-          cat Makefile
-          echo "== Building =="
           make package \
             TARGET=iphone:clang:latest:6.0 \
             ARCHS="armv7 armv7s" \
+            ADDITIONAL_CFLAGS="-fno-modules -D__IPHONE_OS_VERSION_MIN_REQUIRED=60100" \
             DEBUG=0 \
             FINALPACKAGE=1
 
       - uses: actions/upload-artifact@v4
         with:
           name: deb
-          path: |
-            style15/packages/*.deb
-            packages/*.deb
+          path: style15/packages/*.deb
