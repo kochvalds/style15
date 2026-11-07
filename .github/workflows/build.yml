@@ -16,7 +16,7 @@ jobs:
         run: |
           curl -L https://github.com/ProcursusTeam/ldid/releases/download/v2.1.5-procursus7/ldid_linux_x86_64 -o /usr/local/bin/ldid
           chmod +x /usr/local/bin/ldid
-          ldid -v || true   # проверка, что бинарник запускается
+          ldid -v || true
 
       - name: Install Theos
         run: |
@@ -24,11 +24,30 @@ jobs:
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
           echo "$HOME/theos/bin" >> $GITHUB_PATH
 
+      - name: Debug
+        run: |
+          echo "== pwd =="; pwd
+          echo "== THEOS =="; echo "$THEOS"
+          echo "== ls -la =="; ls -la
+          echo "== Makefiles =="; find . -maxdepth 4 -name Makefile -not -path './.git/*'
+          echo "== Root Makefile (if any) =="; [ -f Makefile ] && cat Makefile || echo "(no Makefile in root)"
+
       - name: Build
         run: |
-          make package
+          if [ -f Makefile ]; then
+            echo "Building at repo root"
+            make package
+          elif [ -f style15/Makefile ]; then
+            echo "Building in style15/"
+            cd style15 && make package
+          else
+            echo "No Makefile found — see Debug output above"
+            exit 1
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
           name: deb
-          path: packages/*.deb
+          path: |
+            packages/*.deb
+            style15/packages/*.deb
