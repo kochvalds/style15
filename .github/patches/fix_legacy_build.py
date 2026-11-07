@@ -54,5 +54,7 @@ core.write_text(text)
 makefile = root / "Makefile"
 text = makefile.read_text().replace("TARGET = iphone:clang:latest:4.3", "TARGET = iphone:clang:latest:6.0")
 text = text.replace("UIKit QuartzCore CoreGraphics AVFoundation", "UIKit QuartzCore CoreGraphics")
+if "-Wno-error=arc-performSelector-leaks" not in text:
+    text = text.replace("Style15_CFLAGS = ", "Style15_CFLAGS = -Wno-error=arc-performSelector-leaks ")
 makefile.write_text(text)
 print("Applied legacy SDK/source compatibility fixes.")
